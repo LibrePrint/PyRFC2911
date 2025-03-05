@@ -1,14 +1,10 @@
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import unicode_literals
-
-from io import BytesIO
-import operator
-import itertools
-
 from .parsers import read_struct, write_struct
 from .constants import SectionEnum, TagEnum
+from io import BytesIO
+
+import itertools
+import operator
+
 
 
 class IppRequest(object):
@@ -16,20 +12,21 @@ class IppRequest(object):
         self.version = version  # (major, minor)
         self.opid_or_status = opid_or_status
         self.request_id = request_id
-        self._attributes = attributes
+        self.attributes = attributes
+        
 
     def __cmp__(self, other):
         return self.__eq__(other)
 
     def __eq__(self, other):
-        return type(self) == type(other) or self._attributes == other._attributes
+        return type(self) == type(other) or self.attributes == other.attributes
 
     def __repr__(self):
         return 'IppRequest(%r, 0x%04x, 0x%02x, %r)' % (
             self.version,
             self.opid_or_status,
             self.request_id,
-            self._attributes,)
+            self.attributes,)
 
     @classmethod
     def from_string(cls, string):
@@ -82,12 +79,12 @@ class IppRequest(object):
         write_struct(f, b'>hi', self.opid_or_status, self.request_id)
 
         for section, attrs_in_section in itertools.groupby(
-            sorted(self._attributes.keys()), operator.itemgetter(0)
+            sorted(self.attributes.keys()), operator.itemgetter(0)
         ):
             write_struct(f, b'>B', section)
             for key in attrs_in_section:
                 _section, name, tag = key
-                for i, value in enumerate(self._attributes[key]):
+                for i, value in enumerate(self.attributes[key]):
                     write_struct(f, b'>B', tag)
                     if i == 0:
                         write_struct(f, b'>h', len(name))
@@ -102,22 +99,22 @@ class IppRequest(object):
 
     def attributes_to_multilevel(self, section=None):
         ret = {}
-        for key in self._attributes.keys():
+        for key in self.attributes.keys():
             if section and section != key[0]:
                 continue
             ret.setdefault(key[0], {})
             ret[key[0]].setdefault(key[1], {})
-            ret[key[0]][key[1]][key[2]] = self._attributes[key]
+            ret[key[0]][key[1]][key[2]] = self.attributes[key]
         return ret
 
     def lookup(self, section, name, tag):
-        return self._attributes[section, name, tag]
+        return self.attributes[section, name, tag]
 
     def only(self, section, name, tag):
         items = self.lookup(section, name, tag)
         if len(items) == 1:
             return items[0]
         elif len(items) == 0:
-            raise RuntimeError('self._attributes[%r, %r, %r] is empty list' % (section, name, tag,))
+            raise RuntimeError('self.attributes[%r, %r, %r] is empty list' % (section, name, tag,))
         else:
-            raise ValueError('self._attributes[%r, %r, %r] has more than one value' % (section, name, tag,))
+            raise ValueError('self.attributes[%r, %r, %r] has more than one value' % (section, name, tag,))

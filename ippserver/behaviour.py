@@ -1,25 +1,20 @@
-
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import unicode_literals
-
-import logging
-import os
-import os.path
-import random
-import json
-import subprocess
-import time
-import uuid
-
 from .parsers import Integer, Enum, Boolean
-from .constants import (
-    JobStateEnum, OperationEnum, StatusCodeEnum, SectionEnum, TagEnum
-)
-from .ppd import BasicPostscriptPPD, BasicPdfPPD
+from .adapter import BaseAdapterClass
 from .request import IppRequest
+from threading import Thread
+from .print_job import Job
+from .ppd import ModelPPD
+from .constants import (
+    StatusCodeEnum, 
+    OperationEnum, 
+    JobStateEnum, 
+    SectionEnum, 
+    TagEnum
+)
 
+
+import random
+import time
 
 def get_job_id(req):
     return Integer.from_bytes(
@@ -29,7 +24,9 @@ def get_job_id(req):
                 TagEnum.integer
             )
         ).integer
-
+    
+def get_request_attr(req,attr):
+    req
 
 def read_in_blocks(postscript_file):
     while True:
@@ -39,22 +36,11 @@ def read_in_blocks(postscript_file):
         else:
             yield block
 
-
-def prepare_environment(ipp_request):
-    env = os.environ.copy()
-    env["IPP_JOB_ATTRIBUTES"] = json.dumps(
-        ipp_request.attributes_to_multilevel(SectionEnum.job)
-    )
-    return env
-
-
 class Behaviour(object):
     """Do anything in response to IPP requests"""
     version = (1, 1)
-    base_uri = b'ipp://localhost:1234/'
-    printer_uri = b'ipp://localhost:1234/printer'
 
-    def __init__(self, ppd=BasicPostscriptPPD()):
+    def __init__(self, ppd=None):
         self.ppd = ppd
 
     def expect_page_data_follows(self, ipp_request):
@@ -63,10 +49,6 @@ class Behaviour(object):
     def handle_ipp(self, ipp_request, postscript_file):
         command_function = self.get_handle_command_function(
             ipp_request.opid_or_status
-        )
-        logging.debug(
-            'IPP %r -> %s.%s', ipp_request.opid_or_status, type(self).__name__,
-            command_function.__name__
         )
         return command_function(ipp_request, postscript_file)
 
@@ -107,13 +89,11 @@ class StatelessPrinter(Behaviour):
             OperationEnum.get_jobs: self.operation_get_jobs_response,
             OperationEnum.get_job_attributes: self.operation_get_job_attributes_response,
             OperationEnum.print_job: self.operation_print_job_response,
-            0x0d0a: self.operation_misidentified_as_http,
         }
 
         try:
             command_function = commands[opid_or_status]
         except KeyError:
-            logging.warn('Operation not supported 0x%04x', opid_or_status)
             command_function = self.operation_not_implemented_response
         return command_function
 
@@ -136,6 +116,7 @@ class StatelessPrinter(Behaviour):
 
     def operation_validate_job_response(self, req, _psfile):
         # TODO this just pretends it's ok!
+        # TODO what the fuck
         attributes = self.minimal_attributes()
         return IppRequest(
             self.version,
@@ -144,7 +125,8 @@ class StatelessPrinter(Behaviour):
             attributes)
 
     def operation_get_jobs_response(self, req, _psfile):
-        # an empty list of jobs, which probably breaks the rfc
+        # an empty list of jobs, which probably breaks the rfc 
+        # god f--king damnit ipp
         # if the client asked for completed jobs
         # https://tools.ietf.org/html/rfc2911#section-3.2.6.2
         attributes = self.minimal_attributes()
@@ -155,12 +137,12 @@ class StatelessPrinter(Behaviour):
             attributes)
 
     def operation_print_job_response(self, req, psfile):
-        job_id = self.create_job(req)
+        job_obj = self.create_job()
         attributes = self.print_job_attributes(
-            job_id, JobStateEnum.pending,
+            job_obj.id, JobStateEnum.pending,
             [b'job-incoming', b'job-data-insufficient']
         )
-        self.handle_postscript(req, psfile)
+        self.handle_postscript(job_obj, psfile)
         return IppRequest(
             self.version,
             StatusCodeEnum.ok,
@@ -182,9 +164,6 @@ class StatelessPrinter(Behaviour):
             StatusCodeEnum.ok,
             req.request_id,
             attributes)
-
-    def operation_misidentified_as_http(self, _req, _psfile):
-        raise Exception("The opid for this operation is \\r\\n, which suggests the request was actually a http request.")
 
     def minimal_attributes(self):
         return {
@@ -328,9 +307,9 @@ class StatelessPrinter(Behaviour):
         attr.update(self.minimal_attributes())
         return attr
 
-    def print_job_attributes(self, job_id, state, state_reasons):
+    def print_job_attributes(self, job_obj, state, state_reasons):
         # state reasons come from rfc2911 section 4.3.8
-        job_uri = b'%sjob/%d' % (self.base_uri, job_id,)
+        job_uri = f"{job_obj.id}"
         attr = {
             # Required for print-job:
             (
@@ -342,7 +321,7 @@ class StatelessPrinter(Behaviour):
                 SectionEnum.operation,
                 b'job-id',
                 TagEnum.integer
-            ): [Integer(job_id).bytes()],
+            ): [Integer(job_obj.id).bytes()],
             (
                 SectionEnum.operation,
                 b'job-state',
@@ -365,7 +344,7 @@ class StatelessPrinter(Behaviour):
                 SectionEnum.operation,
                 b'job-name',
                 TagEnum.name_without_language
-            ): [b'Print job %s' % Integer(job_id).bytes()],
+            ): [b'Print job %s' % Integer(job_obj.id).bytes()],
             (
                 SectionEnum.operation,
                 b'job-originating-user-name',
@@ -398,7 +377,7 @@ class StatelessPrinter(Behaviour):
     def printer_uptime(self):
         return int(time.time())
 
-    def create_job(self, req):
+    def create_job(self):
         """Return a job id.
 
         The StatelessPrinter does not care about the id, but perhaps
@@ -409,145 +388,275 @@ class StatelessPrinter(Behaviour):
     def handle_postscript(self, ipp_request, postscript_file):
         raise NotImplementedError
 
-
-class RejectAllPrinter(StatelessPrinter):
-    """A printer that rejects all the print jobs it recieves.
-
-    Cups ignores the rejection notice. I suspect this is because the
-    communication is:
-        recv http post headers
-        recv ipp print_job
-        send http continue headers
-        recv data
-        send ipp aborted
-
-    But to be effective, I suspect the errors need to be sent before the
-    http continue:
-        recv http post headers
-        recv ipp print_job
-        send http headers
-        send ipp aborted
+class ModelBehaviour(StatelessPrinter):
     """
-
-    def operation_print_job_response(self, req, _psfile):
-        job_id = self.create_job(req)
-        attributes = self.print_job_attributes(
-            job_id, JobStateEnum.aborted, [b'job-canceled-at-device']
-        )
-        return IppRequest(
-            self.version,
-            StatusCodeEnum.server_error_job_canceled,
-            req.request_id,
-            attributes)
-
-    def operation_get_job_attributes_response(self, req, _psfile):
-        job_id = get_job_id(req)
-        attributes = self.print_job_attributes(
-            job_id, JobStateEnum.aborted, [b'job-canceled-at-device']
-        )
-        return IppRequest(
-            self.version,
-            StatusCodeEnum.server_error_job_canceled,
-            req.request_id,
-            attributes)
-
-
-class SaveFilePrinter(StatelessPrinter):
-    def __init__(self, directory, filename_ext):
+        Base Behaviour class intended for actual printers
+    """
+    def __init__(
+        self,
+        color_supported: bool,
+        directory: str, 
+        ppd_path: str,
+        adapter: BaseAdapterClass
+    ):
+        self.color_supported = color_supported
+        self.address = ["127.0.0.1",0]
         self.directory = directory
-        self.filename_ext = filename_ext
+        self.jobs: dict[Job] = {}
+        self.adapter = adapter
+        
+        ppd = ModelPPD(ppd_path)
 
-        ppd = {
-            'ps': BasicPostscriptPPD(),
-            'pdf': BasicPdfPPD(),
-        }[filename_ext]
-
-        super(SaveFilePrinter, self).__init__(ppd=ppd)
-
-    def handle_postscript(self, ipp_request, postscript_file):
-        filename = self.filename(ipp_request)
-        logging.info('Saving print job as %r', filename)
-        with open(filename, 'wb') as diskfile:
+        super(ModelBehaviour, self).__init__(ppd=ppd)
+    
+    @property
+    def printer_uri(self):
+        return f"ipp://{self.get_address()}/printer".encode()
+    @property
+    def base_uri(self):
+        return f"ipp://{self.get_address()}/".encode()
+    def get_address(self):
+        return f"{self.address[0]}:{self.address[1]}"
+    
+    def handle_postscript(self, job_obj: Job, postscript_file):
+        with open(job_obj.file, 'wb') as diskfile:
             for block in read_in_blocks(postscript_file):
                 diskfile.write(block)
-        self.run_after_saving(filename, ipp_request)
 
-    def run_after_saving(self, filename, ipp_request):
-        pass
+    def printer_list_attributes(self):
+        attr = {
+            # rfc2911 section 4.4
+            (
+                SectionEnum.printer,
+                b'printer-uri-supported',
+                TagEnum.uri
+            ): [self.printer_uri],
+            (
+                SectionEnum.printer,
+                b'uri-authentication-supported',
+                TagEnum.keyword
+            ): [b'none'],
+            (
+                SectionEnum.printer,
+                b'uri-security-supported',
+                TagEnum.keyword
+            ): [b'none'],
+            (
+                SectionEnum.printer,
+                b'printer-name',
+                TagEnum.name_without_language
+            ): [self.printer_name.encode()],
+            (
+                SectionEnum.printer,
+                b'printer-info',
+                TagEnum.text_without_language
+            ): [self.printer_info.encode()],
+            (
+                SectionEnum.printer,
+                b'printer-make-and-model',
+                TagEnum.text_without_language
+            ): [self.printer_make_and_model.encode()],
+            (
+                SectionEnum.printer,
+                b'printer-state',
+                TagEnum.enum
+            ): [self.state.encode()],
+            (
+                SectionEnum.printer,
+                b'printer-state-reasons',
+                TagEnum.keyword
+            ): [self.state_reasons.encode()],
+            (
+                SectionEnum.printer,
+                b'ipp-versions-supported',
+                TagEnum.keyword
+            ): [b'1.1'], # god fucking damn it
+            (
+                SectionEnum.printer,
+                b'operations-supported',
+                TagEnum.enum
+            ): [
+                Enum(x).bytes()
+                for x in (
+                    OperationEnum.print_job,  # (required by cups)
+                    OperationEnum.validate_job,  # (required by cups)
+                    OperationEnum.cancel_job,  # (required by cups)
+                    OperationEnum.get_job_attributes,  # (required by cups)
+                    OperationEnum.get_printer_attributes,
+                    # TODO: add get jobs
+                )],
+            (
+                SectionEnum.printer,
+                b'multiple-document-jobs-supported',
+                TagEnum.boolean
+            ): [Boolean(False).bytes()],
+            (
+                SectionEnum.printer,
+                b'charset-configured',
+                TagEnum.charset
+            ): [b'utf-8'],
+            (
+                SectionEnum.printer,
+                b'charset-supported',
+                TagEnum.charset
+            ): [b'utf-8'],
+            (
+                SectionEnum.printer,
+                b'natural-language-configured',
+                TagEnum.natural_language
+            ): [b'en'],
+            (
+                SectionEnum.printer,
+                b'generated-natural-language-supported',
+                TagEnum.natural_language
+            ): [b'en'],
+            (
+                SectionEnum.printer,
+                b'document-format-default',
+                TagEnum.mime_media_type
+            ): [b'application/pdf'],
+            (
+                SectionEnum.printer,
+                b'document-format-supported',
+                TagEnum.mime_media_type
+            ): [b'application/pdf'],
+            (
+                SectionEnum.printer,
+                b'printer-is-accepting-jobs',
+                TagEnum.boolean
+            ): [Boolean(self.accepting).bytes()],
+            (
+                SectionEnum.printer,
+                b'queued-job-count',
+                TagEnum.integer
+            ): [Integer(self.queue).bytes()],
+            (
+                SectionEnum.printer,
+                b'pdl-override-supported',
+                TagEnum.keyword
+            ): [b'not-attempted'],
+            (
+                SectionEnum.printer,
+                b'printer-up-time',
+                TagEnum.integer
+            ): [Integer(self.printer_uptime()).bytes()],
+            (
+                SectionEnum.printer,
+                b'compression-supported',
+                TagEnum.keyword
+            ): [b'none'],
+        }
+        attr.update(self.minimal_attributes())
+        return attr
+    
+    def print_job_attributes(self, job: Job, state, state_reasons):
+        # state reasons come from rfc2911 section 4.3.8
+        job_uri = b'%sjob/%d' % (self.base_uri, job,)
+        attr = {
+            # Required for print-job:
+            (
+                SectionEnum.operation,
+                b'job-uri',
+                TagEnum.uri
+            ): [job_uri],
+            (
+                SectionEnum.operation,
+                b'job-id',
+                TagEnum.integer
+            ): [Integer(job.id).bytes()],
+            (
+                SectionEnum.operation,
+                b'job-state',
+                TagEnum.enum
+            ): [Enum(job.state).bytes()],
+            (
+                SectionEnum.operation,
+                b'job-state-reasons',
+                TagEnum.keyword
+            ): job.state_reasons,
+            (
+                SectionEnum.operation,
+                b'job-printer-uri',
+                TagEnum.uri
+            ): [self.printer_uri],
+            (
+                SectionEnum.operation,
+                b'job-name',
+                TagEnum.name_without_language
+            ): [b'Job ID:%s' % Integer(job.id).bytes()],
+            (
+                SectionEnum.operation,
+                b'job-originating-user-name',
+                TagEnum.name_without_language
+            ): [b'unknown'],
+            (
+                SectionEnum.operation,
+                b'time-at-creation',
+                TagEnum.integer
+            ): [Integer(job.start_time).bytes()],
+            (
+                SectionEnum.operation,
+                b'time-at-processing',
+                TagEnum.integer
+            ): [Integer(job.start_time).bytes()],
+            (
+                SectionEnum.operation,
+                b'time-at-completed',
+                TagEnum.integer
+            ): [Integer(job.end_time).bytes() if job.end_time != 1 else b"\x00\x00\x00\x00"],
+            (
+                SectionEnum.operation,
+                b'job-printer-up-time',
+                TagEnum.integer
+            ): [Integer(self.printer_uptime()).bytes()]
+        }
+        attr.update(self.minimal_attributes())
+        return attr
+    
+    def routine_job_list_check(self):
+        for job_obj in self.jobs.values():
+            if job_obj.state == JobStateEnum.completed:
+                del self.jobs[job_obj.id]
+                
+    def create_job(self):
+        routine_check_thread = Thread(target=self.routine_job_list_check)
+        routine_check_thread.start()
+        job_obj = Job(len(self.jobs))
+        self.jobs[job_obj.id] = job_obj
+        routine_check_thread.join()
+        return self.jobs[job_obj.id]
 
-    def filename(self, ipp_request):
-        leaf = self.leaf_filename(ipp_request)
-        return os.path.join(self.directory, leaf)
+    def operation_get_jobs_response(self, req: IppRequest, _psfile):
+        # an empty list of jobs, which probably breaks the rfc 
+        # god f--king damnit ipp
+        # if the client asked for completed jobs
+        # https://tools.ietf.org/html/rfc2911#section-3.2.6.2
+        
+        attributes = self.minimal_attributes()
+        attributes.update({
+            
+        })
+        return IppRequest(
+            self.version,
+            StatusCodeEnum.ok,
+            req.request_id,
+            attributes)
 
-    def leaf_filename(self, _ipp_request):
-        # Possibly use the job name from the ipp_request?
-        return 'ipp-server-print-job-%s.%s' % (uuid.uuid1(), self.filename_ext)
+    def get_handle_command_function(self, opid_or_status):
+        commands = {
+            OperationEnum.get_printer_attributes: self.operation_printer_list_response,
+            OperationEnum.cups_list_all_printers: self.operation_printer_list_response,
+            OperationEnum.cups_get_default: self.operation_printer_list_response,
+            OperationEnum.validate_job: self.operation_validate_job_response,
+            OperationEnum.get_jobs: self.operation_get_jobs_response,
+            OperationEnum.get_job_attributes: self.operation_get_job_attributes_response,
+            OperationEnum.print_job: self.operation_print_job_response,
+            # TODO: Add operation get ppds
+            # OperationEnum.cups_get_ppds: self.operation_get_ppds_response
+        }
 
-
-class SaveAndRunPrinter(SaveFilePrinter):
-    def __init__(self, directory, use_env, filename_ext, command):
-        self.command = command
-        self.use_env = use_env
-        super(SaveAndRunPrinter, self).__init__(
-            directory=directory, filename_ext=filename_ext
-        )
-
-    def run_after_saving(self, filename, ipp_request):
-        proc = subprocess.Popen(self.command + [filename],
-            env=prepare_environment(ipp_request) if self.use_env else None
-        )
-        proc.communicate()
-        if proc.returncode:
-            raise RuntimeError(
-                'The command %r exited with code %r',
-                self.command,
-                proc.returncode
-            )
-
-
-class RunCommandPrinter(StatelessPrinter):
-    def __init__(self, command, use_env, filename_ext):
-        self.command = command
-        self.use_env = use_env
-
-        ppd = {
-            'ps': BasicPostscriptPPD(),
-            'pdf': BasicPdfPPD(),
-        }[filename_ext]
-
-        super(RunCommandPrinter, self).__init__(ppd=ppd)
-
-    def handle_postscript(self, ipp_request, postscript_file):
-        logging.info('Running command for job')
-        proc = subprocess.Popen(
-            self.command,
-            env=prepare_environment(ipp_request) if self.use_env else None,
-            stdin=subprocess.PIPE)
-        data = b''.join(read_in_blocks(postscript_file))
-        proc.communicate(data)
-        if proc.returncode:
-            raise RuntimeError(
-                'The command %r exited with code %r',
-                self.command,
-                proc.returncode
-            )
-
-
-class PostageServicePrinter(StatelessPrinter):
-    def __init__(self, service_api, filename_ext):
-        self.service_api = service_api
-        self.filename_ext = filename_ext
-
-        ppd = {
-            'ps': BasicPostscriptPPD(),
-            'pdf': BasicPdfPPD(),
-        }[filename_ext]
-
-        super(PostageServicePrinter, self).__init__(ppd=ppd)
-
-    def handle_postscript(self, _ipp_request, postscript_file):
-        filename = b'ipp-server-{}.{}'.format(
-            int(time.time()),
-            self.filename_ext)
-        data = b''.join(read_in_blocks(postscript_file))
-        self.service_api.post_pdf_letter(filename, data)
+        try:
+            command_function = commands[opid_or_status]
+        except KeyError:
+            command_function = self.operation_not_implemented_response
+        return command_function

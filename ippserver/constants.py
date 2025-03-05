@@ -1,13 +1,4 @@
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import unicode_literals
-
-try:
-    from enum import IntEnum
-except ImportError:
-    IntEnum = object
-
+from enum import IntEnum,StrEnum
 
 class SectionEnum(IntEnum):
     # delimiters (sections)
@@ -74,7 +65,23 @@ class OperationEnum(IntEnum):
     # https://web.archive.org/web/20061024184939/http://uw714doc.sco.com/en/cups/ipp.html
     cups_get_default = 0x4001
     cups_list_all_printers = 0x4002
+    cups_get_ppds = 0x400C # TODO: make use of this
 
+class PrinterStateEnum(IntEnum):
+    idle = 3
+    processing = 4
+    malfunction = 5
+    
+class PrintErrorEnum(StrEnum):
+    empty_ink_supply = "marker-supply-empty-error"
+    waste_sponge_full = "marker-waste-full-error"
+
+class PrintWarningEnum(StrEnum):
+    """
+        Print Warning. Returned when 
+    """
+    low_ink_supply = "marker-supply-low-warning"
+    waste_sponge_almost_full = "marker-waste-almost-full-warning"
 
 class JobStateEnum(IntEnum):
     # https://tools.ietf.org/html/rfc2911#section-4.3.7
