@@ -1,14 +1,17 @@
-from constants import JobStateEnum
+from .constants import JobStateEnum
 from io import BytesIO
 from math import floor
 from time import time
 
 class Job:
-    def __init__(self,id):
+    def __init__(self,id,state:JobStateEnum = None,state_reasons:list[bytes] = None):
         self.id = id
         self.file: BytesIO = BytesIO()
         self.start_time: int = floor(time())
         self.end_time: int = 1
-        self.state: JobStateEnum
-    def finish(self,id):
+        self.state: JobStateEnum = state or JobStateEnum.pending
+        self.state_reasons = state or [b"none"]
+    def finish(self,reason):
+        self.state = JobStateEnum.completed
+        self.state_reasons = [reason.encode()]
         self.end_time = floor(time())

@@ -52,23 +52,6 @@ class Integer(Value):
     def bytes(self):
         return struct.pack(b'>i', self.integer)
 
-class String(Value):
-    def __init__(self, value):
-        self.string = struct.unpack(b'>'+b's'*STRING_LIMIT, value.ljust(STRING_LIMIT,"\x00").encode())
-        Value.__init__(self)
-
-    @classmethod
-    def from_bytes(cls, data):
-        if len(data) > STRING_LIMIT:
-            raise RuntimeError("Cannot create string object longer than 256 by default. Use pyrfc2911.set_str_limit to change the limit.")
-        
-        val = struct.unpack(b'>'+b's'*STRING_LIMIT, data.ljust(STRING_LIMIT,"\x00").encode())
-        return cls(val)
-
-    def bytes(self):
-        return struct.pack(b'>'+b's'*STRING_LIMIT, *self.string)
-
-print(String("e").bytes())
-
 class Enum(Integer):
     pass
+

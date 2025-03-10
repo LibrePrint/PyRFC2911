@@ -61,7 +61,7 @@ class IPPRequestHandler(BaseHTTPRequestHandler):
                      content_length=None):
         self.log_request(status)
         self.send_response_only(status, None)
-        self.send_header('Server', 'ipp-server')
+        self.send_header('Server', 'pyrfc2911')
         self.send_header('Date', self.date_time_string())
         self.send_header('Content-Type', content_type)
         if content_length:
@@ -79,7 +79,6 @@ class IPPRequestHandler(BaseHTTPRequestHandler):
         pass # TODO: fuck
 
     def handle_expect_100(self):
-        """ Disable """ # what the fuck is this
         return True
 
     def handle_ipp(self):
@@ -103,18 +102,21 @@ class IPPRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(ipp_response)
 
 
-class _IPPServer(socketserver.ThreadingTCPServer):
+class IPPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
-    
-    def __init__(self, address, behaviour):
+    def __init__(self, host: str, port: int, www_url: str, behaviour: Behaviour):
+        """
+            Create IPP server
+            
+            Args:
+                host (str): Hostname e.g. 127.0.0.1 or 0.0.0.0
+                
+                port (int): Port e.g. 
+                
+                www_url (str): URL for HTML GET requests e.g. 127.0.0.1:8080
+                    
+                    This should be a control panel
+        """
         self.behaviour = behaviour
-        self.behaviour.address = address
-        socketserver.ThreadingTCPServer.__init__(self, address, IPPRequestHandler) 
-
-class IPPServer:
-    def __init__(
-        self,
-        address,
-        behaviour:Behaviour
-    ):
-        pass
+        self.behaviour.address = (host,port)
+        socketserver.ThreadingTCPServer.__init__(self, (host,port), IPPRequestHandler) 

@@ -5,6 +5,7 @@ from threading import Thread
 from .print_job import Job
 from .ppd import ModelPPD
 from .constants import (
+    PrinterStateEnum,
     StatusCodeEnum, 
     OperationEnum, 
     JobStateEnum, 
@@ -17,6 +18,7 @@ import random
 import time
 
 def get_job_id(req):
+    # kept for backwards compatibility
     return Integer.from_bytes(
             req.only(
                 SectionEnum.operation,
@@ -24,9 +26,6 @@ def get_job_id(req):
                 TagEnum.integer
             )
         ).integer
-    
-def get_request_attr(req,attr):
-    req
 
 def read_in_blocks(postscript_file):
     while True:
@@ -74,7 +73,10 @@ class AllCommandsReturnNotImplemented(Behaviour):
 
 
 class StatelessPrinter(Behaviour):
-    """A minimal printer which implements all the things a printer needs to work.
+    """
+    BROKEN USE MODELBEHAVIOUR INSTEAD
+    
+    A minimal printer which implements all the things a printer needs to work.
 
     The printer calls handle_postscript() for each print job.
     It says all print jobs succeed immediately: there are some stub functions like create_job() which subclasses could use to keep track of jobs, eg: if operation_get_jobs_response wants to return something sensible.
@@ -397,7 +399,8 @@ class ModelBehaviour(StatelessPrinter):
         color_supported: bool,
         directory: str, 
         ppd_path: str,
-        adapter: BaseAdapterClass
+        adapter: BaseAdapterClass = BaseAdapterClass,
+        branding: str = None,
     ):
         self.color_supported = color_supported
         self.address = ["127.0.0.1",0]
@@ -405,9 +408,18 @@ class ModelBehaviour(StatelessPrinter):
         self.jobs: dict[Job] = {}
         self.adapter = adapter
         
+        if not adapter and branding:
+            self.printer_make_and_model,self.printer_info,self.printer_name,self.printer_model,self.state,self.state_reasons,self.accepting = [
+                "none","none","none","none",PrinterStateEnum.idle,["none"],True
+            ]
+        
         ppd = ModelPPD(ppd_path)
 
         super(ModelBehaviour, self).__init__(ppd=ppd)
+    
+    @property
+    def queue(self):
+        return len([i for i in self.jobs.values() if i.state != JobStateEnum.completed])
     
     @property
     def printer_uri(self):
@@ -415,13 +427,13 @@ class ModelBehaviour(StatelessPrinter):
     @property
     def base_uri(self):
         return f"ipp://{self.get_address()}/".encode()
+    
     def get_address(self):
         return f"{self.address[0]}:{self.address[1]}"
     
     def handle_postscript(self, job_obj: Job, postscript_file):
-        with open(job_obj.file, 'wb') as diskfile:
-            for block in read_in_blocks(postscript_file):
-                diskfile.write(block)
+        for block in read_in_blocks(postscript_file):
+            job_obj.write(block)
 
     def printer_list_attributes(self):
         attr = {
@@ -460,12 +472,12 @@ class ModelBehaviour(StatelessPrinter):
                 SectionEnum.printer,
                 b'printer-state',
                 TagEnum.enum
-            ): [self.state.encode()],
+            ): [Enum(self.state).bytes()],
             (
                 SectionEnum.printer,
                 b'printer-state-reasons',
                 TagEnum.keyword
-            ): [self.state_reasons.encode()],
+            ): [i.encode() for i in self.state_reasons],
             (
                 SectionEnum.printer,
                 b'ipp-versions-supported',
@@ -549,9 +561,9 @@ class ModelBehaviour(StatelessPrinter):
         attr.update(self.minimal_attributes())
         return attr
     
-    def print_job_attributes(self, job: Job, state, state_reasons):
+    def print_job_attributes(self, job: Job):
         # state reasons come from rfc2911 section 4.3.8
-        job_uri = b'%sjob/%d' % (self.base_uri, job,)
+        job_uri = b'%sjob/%d' % (self.base_uri, job.id,)
         attr = {
             # Required for print-job:
             (
@@ -616,26 +628,26 @@ class ModelBehaviour(StatelessPrinter):
     def routine_job_list_check(self):
         for job_obj in self.jobs.values():
             if job_obj.state == JobStateEnum.completed:
-                del self.jobs[job_obj.id]
+                self.jobs[job_obj.id].file.close()
                 
     def create_job(self):
         routine_check_thread = Thread(target=self.routine_job_list_check)
         routine_check_thread.start()
-        job_obj = Job(len(self.jobs))
+        job_obj = Job(len(self.jobs.keys()))
         self.jobs[job_obj.id] = job_obj
         routine_check_thread.join()
         return self.jobs[job_obj.id]
 
     def operation_get_jobs_response(self, req: IppRequest, _psfile):
-        # an empty list of jobs, which probably breaks the rfc 
-        # god f--king damnit ipp
-        # if the client asked for completed jobs
-        # https://tools.ietf.org/html/rfc2911#section-3.2.6.2
+        # rfc 2911 is dogshit
+        # TODO: Fix this shit
         
         attributes = self.minimal_attributes()
+        
         attributes.update({
             
         })
+        
         return IppRequest(
             self.version,
             StatusCodeEnum.ok,
@@ -660,3 +672,16 @@ class ModelBehaviour(StatelessPrinter):
         except KeyError:
             command_function = self.operation_not_implemented_response
         return command_function
+    
+    def operation_print_job_response(self, req, psfile):
+        job_obj = self.create_job()
+        attributes = self.print_job_attributes(
+            job_obj
+        )
+        self.handle_postscript(job_obj, psfile)
+        return IppRequest(
+            self.version,
+            StatusCodeEnum.ok,
+            req.request_id,
+            attributes
+        )
