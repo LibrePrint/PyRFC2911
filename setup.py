@@ -9,7 +9,7 @@ with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
 with codecs.open(os.path.join(here, "LICENSE"), encoding="utf-8") as fh:
     license = "\n" + fh.read()
 
-VERSION = '{{VERSION_PLACEHOLDER}}'
+VERSION = '0.0.1a'
 DESCRIPTION = 'Python package for creating DIY printers'
 
 # Setting up
