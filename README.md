@@ -1,9 +1,27 @@
 # PyRFC2911
 
-Python library for IPP **servers** intended for actual printers 
+PyRFC2911 is a python library that can be used for DIY printers.
 
-# Progress
+# Contribution
 
-A lot has to be changed to use it in an actual printer. The \_\_main__.py file was deleted because the folder shouldn't be used as a CLI tool, it should be used as a library even when finished.
+Get-Jobs function currently does not work, contribution welcome. But it isn't commonly used so it should be fine.
 
-UNFINISHED - Contribution welcome
+# Installation
+
+Currently only available through git because PyRFC2911 is in alpha.
+
+`pip install git+https://github.com/lizard-64/PyRFC2911`
+
+# How to use
+
+The printer creator, creates 2 classes that inherit 
+
+`rfc2911.adapter.BaseAdapterClass`
+
+and
+
+`rfc2911.adapter.BaseBrandingClass`
+
+And reimplement the functions as described. Then they create a Postscript Printer Definition class, which can be used for CUPS. These classes are used to control the printing device and report its branding.
+
+Detailed documentation coming soon.

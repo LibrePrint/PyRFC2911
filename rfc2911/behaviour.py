@@ -1,11 +1,9 @@
 from .parsers import Integer, Enum, Boolean
-from .adapter import BaseAdapterClass
+from .adapter import BaseAdapterClass, BaseBranding
 from .request import IppRequest
 from threading import Thread
 from .print_job import Job
-from .ppd import ModelPPD
 from .constants import (
-    PrinterStateEnum,
     StatusCodeEnum, 
     OperationEnum, 
     JobStateEnum, 
@@ -39,8 +37,7 @@ class Behaviour(object):
     """Do anything in response to IPP requests"""
     version = (1, 1)
 
-    def __init__(self, ppd=None):
-        self.ppd = ppd
+    def __init__(self,):pass
 
     def expect_page_data_follows(self, ipp_request):
         return ipp_request.opid_or_status == OperationEnum.print_job
@@ -74,7 +71,7 @@ class AllCommandsReturnNotImplemented(Behaviour):
 
 class StatelessPrinter(Behaviour):
     """
-    BROKEN USE MODELBEHAVIOUR INSTEAD
+    Do not use
     
     A minimal printer which implements all the things a printer needs to work.
 
@@ -398,9 +395,7 @@ class ModelBehaviour(StatelessPrinter):
         self,
         color_supported: bool,
         directory: str, 
-        ppd_path: str,
         adapter: BaseAdapterClass = BaseAdapterClass,
-        branding: str = None,
     ):
         self.color_supported = color_supported
         self.address = ["127.0.0.1",0]
@@ -408,22 +403,40 @@ class ModelBehaviour(StatelessPrinter):
         self.jobs: dict[Job] = {}
         self.adapter = adapter
         
-        if not adapter and branding:
-            self.printer_make_and_model,self.printer_info,self.printer_name,self.printer_model,self.state,self.state_reasons,self.accepting = [
-                "none","none","none","none",PrinterStateEnum.idle,["none"],True
-            ]
         
-        ppd = ModelPPD(ppd_path)
+        if not adapter:
+            self.printer_make_and_model,self.printer_info,self.printer_name,self.printer_model,self.accepting = [
+                "none","none","none","none",True
+            ]
+        else:
+            branding = adapter.get_branding()
+            self.printer_make_and_model = branding.PRINTER_MAKE_AND_MODEL
+            self.printer_info = branding.PRINTER_INFO
+            self.printer_name = branding.PRINTER_NAME        
 
-        super(ModelBehaviour, self).__init__(ppd=ppd)
+
+        super(ModelBehaviour, self).__init__()
     
     @property
     def queue(self):
         return len([i for i in self.jobs.values() if i.state != JobStateEnum.completed])
     
     @property
+    def state(self):
+        return self.adapter.state
+    
+    @property
+    def state_reasons(self):
+        return self.adapter.state_reasons
+    
+    @property
+    def accepting(self):
+        return self.adapter.accepting
+    
+    @property
     def printer_uri(self):
         return f"ipp://{self.get_address()}/printer".encode()
+    
     @property
     def base_uri(self):
         return f"ipp://{self.get_address()}/".encode()
@@ -477,7 +490,7 @@ class ModelBehaviour(StatelessPrinter):
                 SectionEnum.printer,
                 b'printer-state-reasons',
                 TagEnum.keyword
-            ): [i.encode() for i in self.state_reasons],
+            ): self.state_reasons,
             (
                 SectionEnum.printer,
                 b'ipp-versions-supported',
@@ -644,10 +657,6 @@ class ModelBehaviour(StatelessPrinter):
         
         attributes = self.minimal_attributes()
         
-        attributes.update({
-            
-        })
-        
         return IppRequest(
             self.version,
             StatusCodeEnum.ok,
@@ -673,6 +682,12 @@ class ModelBehaviour(StatelessPrinter):
             command_function = self.operation_not_implemented_response
         return command_function
     
+    def callback(self,job: Job):
+        """
+            Called when a new print job is created.
+        """
+        self.adapter.receive_job(job)
+
     def operation_print_job_response(self, req, psfile):
         job_obj = self.create_job()
         attributes = self.print_job_attributes(

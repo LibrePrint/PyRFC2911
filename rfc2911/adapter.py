@@ -11,7 +11,7 @@ class PrintResult:
     malfunction_ink_supply_empty_error = 1
     malfunction_waste_full_error = 2
 
-class BaseBranding:
+class BaseBrandingClass:
     PRINTER_NAME = "A1"
     PRINTER_INFO = "LibrePrint InkJet A1"
     PRINTER_MAKE_AND_MODEL = "InkJet A1"
@@ -35,8 +35,11 @@ class BaseAdapterClass:
             Print postscript data into paper and return result.
             Should warn about low ink or almost full waste sponge.
         """
-    def return_branding(self) -> BaseBranding:
+    def receive_job(self,):
+        """
+            Should receive and process job.
+        """
+    def get_branding(self) -> BaseBrandingClass:
         """
             Should return branding information about the printer.
         """
-        

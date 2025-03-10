@@ -1,4 +1,4 @@
-from .constants import JobStateEnum
+from .constants import JobStateEnum,JobStateReasonEnum
 from io import BytesIO
 from math import floor
 from time import time
@@ -11,7 +11,7 @@ class Job:
         self.end_time: int = 1
         self.state: JobStateEnum = state or JobStateEnum.pending
         self.state_reasons = state or [b"none"]
-    def finish(self,reason):
+    def finish(self,state=JobStateEnum.completed,reason=JobStateReasonEnum.complete_success):
         self.state = JobStateEnum.completed
         self.state_reasons = [reason.encode()]
         self.end_time = floor(time())

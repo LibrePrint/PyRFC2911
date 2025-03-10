@@ -2,9 +2,9 @@ import sys
 sys.path.append(".")
 sys.path.append("..")
 
-from ippserver.behaviour import ModelBehaviour
-from ippserver.adapter import BaseAdapterClass
-from ippserver.server import IPPServer
+from rfc2911.behaviour import ModelBehaviour
+from rfc2911.adapter import BaseAdapterClass
+from rfc2911.server import IPPServer
 
 IPPServer(
     "127.0.0.1",
@@ -13,7 +13,6 @@ IPPServer(
     ModelBehaviour(
         True,
         ".",
-        "tests/.ppd",
         BaseAdapterClass(print)
     )
 ).serve_forever()

@@ -92,3 +92,11 @@ class JobStateEnum(IntEnum):
     canceled = 7
     aborted = 8
     completed = 9
+    
+class JobStateReasonEnum(StrEnum):
+    complete_success = "job-completed-successfully"
+    complete_warning = "job-completed-with-warnings"
+    complete_error = "job-completed-with-errors"
+    
+    canceled_at_device = "job-canceled-at-device"
+    

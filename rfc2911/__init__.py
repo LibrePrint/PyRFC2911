@@ -10,7 +10,7 @@ Usage:
 >>> IPPServer(
 >>>     "0.0.0.0",
 >>>     631,
->>>     "127.0.0.1:3000/controlpanel",
+>>>     "http://127.0.0.1:3000/controlpanel",
 >>>     ModelBehaviour(
 >>>         True,
 >>>         ".",
@@ -20,3 +20,8 @@ Usage:
 
 See documentation for details.
 """
+
+from .adapter import BaseAdapterClass,BaseBrandingClass
+from .behaviour import ModelBehaviour
+from .server import IPPServer
+

@@ -4,6 +4,7 @@ from .request import IppRequest
 from io import BytesIO
 
 import socketserver
+import requests
 
 def read_chunked(rfile):
     def _get_next_chunk(rfile):
@@ -76,14 +77,19 @@ class IPPRequestHandler(BaseHTTPRequestHandler):
         self.handle_www()
 
     def handle_www(self):
-        pass # TODO: fuck
+        response: requests.Response = requests.get(url=self.www_url+self.path,headers=self.headers)
+        for key, value in response.headers:
+            self.send_headers(key,value)
+        self.end_headers()
+        self.wfile.write(response.content.decode())
+        
 
     def handle_expect_100(self):
         return True
 
     def handle_ipp(self):
         self.ipp_request = IppRequest.from_file(self.rfile)
-
+        
         if self.server.behaviour.expect_page_data_follows(self.ipp_request):
             self.send_headers(
                 status=100, content_type='application/ipp'
@@ -100,7 +106,7 @@ class IPPRequestHandler(BaseHTTPRequestHandler):
             content_length=len(ipp_response)
         )
         self.wfile.write(ipp_response)
-
+        
 
 class IPPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
@@ -119,4 +125,7 @@ class IPPServer(socketserver.ThreadingTCPServer):
         """
         self.behaviour = behaviour
         self.behaviour.address = (host,port)
-        socketserver.ThreadingTCPServer.__init__(self, (host,port), IPPRequestHandler) 
+        socketserver.ThreadingTCPServer.__init__(self, (host,port), IPPRequestHandler)
+        self.RequestHandlerClass.www_url = www_url
+    def run(self):
+        self.server_forever()
