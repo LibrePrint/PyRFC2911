@@ -1,5 +1,5 @@
 from .parsers import Integer, Enum, Boolean
-from .adapter import BaseAdapterClass, BaseBranding
+from .adapter import BaseAdapterClass
 from .request import IppRequest
 from threading import Thread
 from .print_job import Job
