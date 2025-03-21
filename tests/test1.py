@@ -1,14 +1,16 @@
+# NOTE: 
+# Set "ppd" environment variable to a ppd as a string.
+# e.g. ppd=$(cat ~/some_printer.ppd) python test1.py
+
 ######################################################
 #                    Fix path                        #
+from os import environ                               #
 import sys;sys.path.append(".");sys.path.append("..")#
 ######################################################
 
-from rfc2911.adapter import BaseAdapterClass,BaseBrandingClass
+from rfc2911.adapter import BaseAdapterClass
 from rfc2911.behaviour import ModelBehaviour
 from rfc2911.server import IPPServer
-from os import environ
-
-print(BaseBrandingClass.from_ppd(environ["ppd"]).__dict__)
 
 IPPServer(
     "127.0.0.1",
