@@ -1,10 +1,12 @@
 from http.server import BaseHTTPRequestHandler
 from .behaviour import Behaviour
 from .request import IppRequest
+from pathlib import Path
 from io import BytesIO
 
 import socketserver
 import requests
+import os
 
 def read_chunked(rfile):
     def _get_next_chunk(rfile):
@@ -77,13 +79,33 @@ class IPPRequestHandler(BaseHTTPRequestHandler):
         self.handle_www()
 
     def handle_www(self):
-        response: requests.Response = requests.get(url=self.www_url+self.path,headers=self.headers)
-        for key, value in response.headers:
-            self.send_headers(key,value)
-        self.end_headers()
-        self.wfile.write(response.content.decode())
+        www_default = os.path.join(os.path.abspath(os.path.dirname(__file__)),"www_default")
+        if "CUPS" in self.headers["User-Agent"]:
+            if self.path.endswith(".ppd"):
+                self.send_headers(status=200, content_type='text/plain')
+                self.wfile.write(self.behaviour.ppd.encode())
+        try:
+            response: requests.Response = requests.get(url="http://"+self.www_url+self.path,headers=self.headers)
+        except:
+            self.send_headers(status=200, content_type='text/html')
+            self.end_headers()
+            self.wfile.write(self.internal_error_html("Exception occurred when contacting WWW control panel.","None"))
+            return
+        if response.status_code == 200:
+            for key, value in response.headers:
+                self.send_headers(key,value)
+            self.end_headers()
+            self.wfile.write(response.content)
+        else: 
+            self.send_headers(status=200, content_type='text/html')
+            self.end_headers()
+            self.wfile.write(self.internal_error_html(response.status_code,response.headers))
         
-
+    def internal_error_html(self,status_code,headers):
+        headers = str(self.headers)        
+        www_default = os.path.join(os.path.abspath(os.path.dirname(__file__)),"www_default") # i hope this fucking works
+        return Path(www_default,"internal_error.html").read_text().replace("%%STATUSCODE",status_code).replace("%%HEADERS",headers).encode()
+        
     def handle_expect_100(self):
         return True
 
@@ -124,8 +146,12 @@ class IPPServer(socketserver.ThreadingTCPServer):
                     This should be a control panel
         """
         self.behaviour = behaviour
+        self.address = (host,port)
         self.behaviour.address = (host,port)
         socketserver.ThreadingTCPServer.__init__(self, (host,port), IPPRequestHandler)
-        self.RequestHandlerClass.www_url = www_url
+        self.RequestHandlerClass.www_url = www_url.lstrip("http://")
+        self.RequestHandlerClass.behaviour = behaviour
     def run(self):
-        self.server_forever()
+        print(" * Serving PyRFC2911 printer")
+        print(f" * You can visit the web page you provided on http://{self.address[0]}:{self.address[1]}")
+        self.serve_forever()

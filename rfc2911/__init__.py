@@ -21,7 +21,6 @@ Usage:
 See documentation for details.
 """
 
-from .adapter import BaseAdapterClass,BaseBrandingClass
 from .behaviour import ModelBehaviour
+from .adapter import BaseAdapterClass,BaseBrandingClass
 from .server import IPPServer
-

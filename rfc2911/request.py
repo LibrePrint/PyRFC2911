@@ -1,4 +1,4 @@
-from .parsers import read_struct, write_struct
+from .parsers import Integer, read_struct, write_struct
 from .constants import SectionEnum, TagEnum
 from io import BytesIO
 
@@ -95,6 +95,7 @@ class IppRequest(object):
                     assert (tag != TagEnum.integer or len(value) == 4)
                     write_struct(f, b'>h', len(value))
                     f.write(value)
+                    
         write_struct(f, b'>B', SectionEnum.END)
 
     def attributes_to_multilevel(self, section=None):

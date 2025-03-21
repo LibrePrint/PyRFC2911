@@ -73,12 +73,15 @@ class PrinterStateEnum(IntEnum):
     malfunction = 5
     
 class PrintErrorEnum(StrEnum):
+    """
+        Print Error. Should only be returned when printing _cannot_ be done.
+    """
     empty_ink_supply = "marker-supply-empty-error"
     waste_sponge_full = "marker-waste-full-error"
 
 class PrintWarningEnum(StrEnum):
     """
-        Print Warning. Returned when 
+        Print Warning. Returned when printing _can_ be done, but quality is not guaranteed.
     """
     low_ink_supply = "marker-supply-low-warning"
     waste_sponge_almost_full = "marker-waste-almost-full-warning"
@@ -97,6 +100,5 @@ class JobStateReasonEnum(StrEnum):
     complete_success = "job-completed-successfully"
     complete_warning = "job-completed-with-warnings"
     complete_error = "job-completed-with-errors"
-    
     canceled_at_device = "job-canceled-at-device"
     

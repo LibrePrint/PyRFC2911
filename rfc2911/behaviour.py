@@ -392,46 +392,44 @@ class ModelBehaviour(StatelessPrinter):
         Base Behaviour class intended for actual printers
     """
     def __init__(
-        self,
-        color_supported: bool,
-        directory: str, 
-        adapter: BaseAdapterClass = BaseAdapterClass,
+        self,*,
+        color_supported: bool = True,
+        adapter: BaseAdapterClass = None,
     ):
+        if not adapter:
+            raise RuntimeError("Adapter required.")
+        
         self.color_supported = color_supported
         self.address = ["127.0.0.1",0]
-        self.directory = directory
         self.jobs: dict[Job] = {}
         self.adapter = adapter
+        self.ppd = self.adapter.ppd
         
-        
-        if not adapter:
-            self.printer_make_and_model,self.printer_info,self.printer_name,self.printer_model,self.accepting = [
-                "none","none","none","none",True
-            ]
-        else:
-            branding = adapter.get_branding()
-            self.printer_make_and_model = branding.PRINTER_MAKE_AND_MODEL
-            self.printer_info = branding.PRINTER_INFO
-            self.printer_name = branding.PRINTER_NAME        
+        branding = self.adapter.get_branding()
+        self.printer_make_and_model = branding.PRINTER_MAKE_AND_MODEL
+        self.printer_info = branding.PRINTER_INFO
+        self.printer_name = branding.PRINTER_NAME 
+                   
 
 
         super(ModelBehaviour, self).__init__()
     
     @property
     def queue(self):
+        print(len([i for i in self.jobs.values() if i.state != JobStateEnum.completed]))
         return len([i for i in self.jobs.values() if i.state != JobStateEnum.completed])
     
     @property
     def state(self):
-        return self.adapter.state
+        return self.adapter.state if self.adapter else 3
     
     @property
     def state_reasons(self):
-        return self.adapter.state_reasons
+        return self.adapter.state_reasons if self.adapter else b"none"
     
     @property
     def accepting(self):
-        return self.adapter.accepting
+        return self.adapter.accepting if self.adapter else True
     
     @property
     def printer_uri(self):
@@ -443,10 +441,6 @@ class ModelBehaviour(StatelessPrinter):
     
     def get_address(self):
         return f"{self.address[0]}:{self.address[1]}"
-    
-    def handle_postscript(self, job_obj: Job, postscript_file):
-        for block in read_in_blocks(postscript_file):
-            job_obj.write(block)
 
     def printer_list_attributes(self):
         attr = {
@@ -485,7 +479,7 @@ class ModelBehaviour(StatelessPrinter):
                 SectionEnum.printer,
                 b'printer-state',
                 TagEnum.enum
-            ): [Enum(self.state).bytes()],
+            ): [Enum(3).bytes()],
             (
                 SectionEnum.printer,
                 b'printer-state-reasons',
@@ -508,7 +502,6 @@ class ModelBehaviour(StatelessPrinter):
                     OperationEnum.cancel_job,  # (required by cups)
                     OperationEnum.get_job_attributes,  # (required by cups)
                     OperationEnum.get_printer_attributes,
-                    # TODO: add get jobs
                 )],
             (
                 SectionEnum.printer,
@@ -593,7 +586,7 @@ class ModelBehaviour(StatelessPrinter):
                 SectionEnum.operation,
                 b'job-state',
                 TagEnum.enum
-            ): [Enum(job.state).bytes()],
+            ): [Enum(job.state[0]).bytes()],
             (
                 SectionEnum.operation,
                 b'job-state-reasons',
@@ -646,9 +639,8 @@ class ModelBehaviour(StatelessPrinter):
     def create_job(self):
         routine_check_thread = Thread(target=self.routine_job_list_check)
         routine_check_thread.start()
-        job_obj = Job(len(self.jobs.keys()))
+        job_obj = Job(len(self.jobs.keys()),state=JobStateEnum.processing)
         self.jobs[job_obj.id] = job_obj
-        routine_check_thread.join()
         return self.jobs[job_obj.id]
 
     def operation_get_jobs_response(self, req: IppRequest, _psfile):
@@ -657,6 +649,21 @@ class ModelBehaviour(StatelessPrinter):
         
         attributes = self.minimal_attributes()
         
+        return IppRequest(
+            self.version,
+            StatusCodeEnum.ok,
+            req.request_id,
+            attributes)
+
+    def operation_get_job_attributes_response(self, req, _psfile):
+        # Should have all these attributes:
+        # https://tools.ietf.org/html/rfc2911#section-4.3
+
+        job_id = get_job_id(req)
+        job_obj = self.jobs[job_id]
+        attributes = self.print_job_attributes(
+            job_obj,
+        )
         return IppRequest(
             self.version,
             StatusCodeEnum.ok,
@@ -682,18 +689,24 @@ class ModelBehaviour(StatelessPrinter):
             command_function = self.operation_not_implemented_response
         return command_function
     
-    def callback(self,job: Job):
+    def callback(self,job: Job,*,blocking=False):
         """
             Called when a new print job is created.
         """
-        self.adapter.receive_job(job)
+        # Signal the adapter without blocking
+        thread = Thread(target=self.adapter.receive_job,args=(job,))
+        thread.start()
+        if blocking:
+            thread.join()
 
     def operation_print_job_response(self, req, psfile):
         job_obj = self.create_job()
         attributes = self.print_job_attributes(
             job_obj
         )
-        self.handle_postscript(job_obj, psfile)
+        for block in read_in_blocks(psfile):
+            job_obj.file.write(block)
+        self.callback(job_obj)
         return IppRequest(
             self.version,
             StatusCodeEnum.ok,
