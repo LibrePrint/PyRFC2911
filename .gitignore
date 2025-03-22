@@ -1,4 +1,7 @@
 # Byte-compiled / optimized / DLL files
+
+pypi_release.yml # temporarily
+
 __pycache__/
 *.py[cod]
 *$py.class
