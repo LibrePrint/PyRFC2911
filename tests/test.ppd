@@ -1,0 +1,17 @@
+*PPD-Adobe: "4.3"
+
+*LanguageLevel: "2"
+*LanguageEncoding: ISOLatin1
+*LanguageVersion: English
+*PCFileName: "printer.ppd"
+
+*FileSystem: False
+
+*Product: "(InkJet A1)"
+*Manufacturer:  "lizard64"
+*ModelName: "LibrePrint InkJet A1"
+
+*ColorDevice: True
+*DefaultColorSpace: CMYK
+*Throughput: "1"
+*Password: "0"

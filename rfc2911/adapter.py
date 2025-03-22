@@ -6,7 +6,7 @@
 from .constants import JobStateEnum, PrinterStateEnum,PrintWarningEnum,PrintErrorEnum
 from types import FunctionType
 from random import randint
-from io import FileIO
+from io import FileIO, IOBase
 
 import time
 import re
@@ -27,10 +27,12 @@ class BaseBrandingClass:
             
             ppd: Can be either the ppd file as a string, or a file descriptor-like object supporting .read()
         """
-        if type(ppd) == FileIO:
+        if hasattr(ppd,"read"):
             data = ppd.read()
-        if type(ppd) == str:
+        elif type(ppd) == str:
             data = ppd
+        else:
+            raise TypeError(f"ppd argument must be readable or str, not {type(ppd)}")
         printer_name = re.search("\\*Product\\:.*",data)[0]
         printer_name = printer_name.split("\"")[1]
         printer_name = re.sub("[\\(\\)]","",printer_name)
@@ -101,7 +103,7 @@ class BaseAdapterClass:
         """
             Should return branding information about the printer.
         """
-        return BaseBrandingClass
+        return BaseBrandingClass.from_ppd(self.ppd)
     
     @property
     def state(self):

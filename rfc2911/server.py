@@ -154,4 +154,8 @@ class IPPServer(socketserver.ThreadingTCPServer):
     def run(self):
         print(" * Serving PyRFC2911 printer")
         print(f" * You can visit the web page you provided on http://{self.address[0]}:{self.address[1]}")
+        print(" * You can also add the printer with the same URL")
         self.serve_forever()
+        
+    def __getattr__(self):
+        return "hi"
