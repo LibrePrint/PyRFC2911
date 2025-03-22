@@ -1,11 +1,10 @@
 # Byte-compiled / optimized / DLL files
 
-pypi_release.yml # temporarily
+.ruff_cache
 
 __pycache__/
 *.py[cod]
 *$py.class
-
 # C extensions
 *.so
 
